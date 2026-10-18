@@ -1,0 +1,140 @@
+"""Isolated yt-dlp process. Only JSON result/progress is written to stdout."""
+import sys, json, socket, ipaddress, os
+from pathlib import Path
+
+# Enforce public network destinations for Python downloader connections.
+_original_connect = socket.socket.connect
+_original_connect_ex = socket.socket.connect_ex
+def check_address(address):
+    if isinstance(address, tuple):
+        host = address[0].split('%')[0]
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            for record in socket.getaddrinfo(host, address[1], type=socket.SOCK_STREAM):
+                if not ipaddress.ip_address(record[4][0]).is_global:
+                    raise OSError('Non-public network destination blocked')
+        else:
+            if not ip.is_global:
+                raise OSError('Non-public network destination blocked')
+def safe_connect(self, address):
+    check_address(address)
+    return _original_connect(self, address)
+def safe_connect_ex(self, address):
+    check_address(address)
+    return _original_connect_ex(self, address)
+socket.socket.connect = safe_connect
+socket.socket.connect_ex = safe_connect_ex
+
+import yt_dlp
+class QuietLogger:
+    def debug(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
+
+def emit(data):
+    print(json.dumps(data, ensure_ascii=False), flush=True)
+
+def options():
+    return dict(quiet=True, no_warnings=True, logger=QuietLogger(), noplaylist=True,
+        skip_download=True, socket_timeout=15, retries=1, fragment_retries=1,
+        extractor_retries=1, cachedir=False, playlistend=1, hls_prefer_native=True,
+        js_runtimes={'deno': {}}, max_filesize=300*1024*1024,
+        allowed_extractors=['default', '-generic'],
+        format='bestvideo+bestaudio/best')
+
+def normalize(info):
+    if not info or info.get('_type') in ('playlist', 'multi_video'):
+        raise ValueError('PLAYLIST')
+    if info.get('is_live') or info.get('live_status') in ('is_live', 'is_upcoming'):
+        raise ValueError('LIVE')
+    if (info.get('duration') or 0) > 1200:
+        raise ValueError('TOO_LONG')
+    if info.get('has_drm'):
+        raise ValueError('DRM')
+    formats = [f for f in info.get('formats', []) if f.get('url') and not f.get('has_drm')
+        and f.get('protocol') in ('https','http','m3u8_native','m3u8','http_dash_segments')
+        and (f.get('ext') or '') not in ('mhtml','jpg','png')]
+    if not formats and info.get('url') and info.get('ext'):
+        formats = [dict(info, format_id=info.get('format_id') or 'best')]
+    audio = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') not in ('none', None)]
+    aud = max(audio, key=lambda f:(f.get('ext')=='m4a', f.get('abr') or f.get('tbr') or 0), default=None)
+    grouped = {}
+    for f in formats:
+        if f.get('vcodec') in ('none', None): continue
+        h = int(f.get('height') or 0)
+        key = h or 'original'
+        score = (f.get('ext')=='mp4', str(f.get('vcodec')).startswith(('avc','h264')), f.get('tbr') or 0)
+        if key not in grouped or score > grouped[key][0]: grouped[key] = (score, f)
+    result, selectors = [], {}
+    for key, (_, f) in sorted(grouped.items(), key=lambda item: item[0] if isinstance(item[0], int) else 0, reverse=True):
+        has_audio = f.get('acodec') not in ('none', None)
+        merge = not has_audio and aud is not None
+        ext = ('mp4' if f.get('ext')=='mp4' and aud.get('ext')=='m4a' else 'mkv') if merge else (f.get('ext') or 'mp4')
+        fid = str(f['format_id'])
+        selector = fid+'+'+str(aud['format_id']) if merge else fid
+        size = f.get('filesize') or f.get('filesize_approx')
+        if merge:
+            asize = aud.get('filesize') or aud.get('filesize_approx')
+            size = size+asize if size and asize else None
+        if size and size > 300*1024*1024: continue
+        oid = 'v'+str(len(result))
+        result.append(dict(id=oid, kind='video', label=f'{key}p' if isinstance(key,int) else 'الجودة الأصلية',
+            ext=ext, size=size, fps=f.get('fps'), audio=has_audio or merge,
+            approximate=not bool(f.get('filesize')) or merge))
+        selectors[oid] = dict(format=selector, merge_output_format=ext)
+    if aud:
+        result.append(dict(id='audio',kind='audio',label='الصوت الأصلي',ext=aud.get('ext') or 'm4a',size=aud.get('filesize') or aud.get('filesize_approx'),approximate=not bool(aud.get('filesize'))))
+        selectors['audio'] = dict(format=str(aud['format_id']))
+    if aud or any(f.get('acodec') not in ('none',None) for f in formats):
+        result.append(dict(id='mp3',kind='audio',label='تحويل إلى MP3',ext='mp3',size=None,approximate=True))
+        selectors['mp3'] = dict(format=str(aud['format_id']) if aud else 'bestaudio/best', postprocessors=[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'192'}])
+    if not result: raise ValueError('NO_FORMATS')
+    thumbs = info.get('thumbnails') or []
+    thumb = info.get('thumbnail') or (thumbs[-1].get('url') if thumbs else None)
+    if thumb and not thumb.startswith('https://'): thumb = None
+    return dict(title=(info.get('title') or 'فيديو')[:300], uploader=(info.get('uploader') or info.get('channel') or '')[:150],
+        duration=info.get('duration'),thumbnail=thumb,platform=info.get('extractor_key') or info.get('extractor') or '',options=result), selectors
+
+def main():
+    data = json.load(sys.stdin)
+    opt = options()
+    if data['action']=='analyze':
+        with yt_dlp.YoutubeDL(opt) as ydl:
+            info = ydl.extract_info(data['url'], download=False)
+        public, selectors = normalize(info)
+        emit(dict(result=public, selectors=selectors))
+    else:
+        output=Path(data['directory']).resolve()
+        def progress(event):
+            total=sum(p.stat().st_size for p in output.rglob('*') if p.is_file())
+            if total>300*1024*1024: raise ValueError('TOO_LARGE')
+            if event.get('status')=='downloading':
+                size=event.get('total_bytes') or event.get('total_bytes_estimate')
+                pct=round(100*event.get('downloaded_bytes',0)/size,1) if size else None
+                emit(dict(progress=pct,status='downloading'))
+            elif event.get('status')=='finished': emit(dict(progress=None,status='processing'))
+        opt.update(data['selector'])
+        opt.update(skip_download=False, outtmpl=str(output/'video.%(ext)s'), progress_hooks=[progress],
+            continuedl=False, restrictfilenames=True, concurrent_fragment_downloads=1,
+            match_filter=lambda info,**kw: 'TOO_LONG' if (info.get('duration') or 0)>1200 or info.get('is_live') else None)
+        with yt_dlp.YoutubeDL(opt) as ydl: ydl.extract_info(data['url'],download=True)
+        files=[p for p in output.iterdir() if p.is_file() and p.suffix not in ('.part','.ytdl','.json')]
+        if len(files)!=1: raise ValueError('DOWNLOAD_FAILED')
+        if files[0].stat().st_size>300*1024*1024: raise ValueError('TOO_LARGE')
+        emit(dict(file=files[0].name))
+
+if __name__=='__main__':
+    try: main()
+    except Exception as exc:
+        message=str(exc)
+        code=next((c for c in ('TOO_LONG','TOO_LARGE','DRM','LIVE','PLAYLIST','NO_FORMATS') if c in message),None)
+        lower=message.lower()
+        if not code:
+            if any(x in lower for x in ('login','sign in','cookies','private','not a bot','confirm your age')): code='AUTH_REQUIRED'
+            elif 'unsupported' in lower: code='UNSUPPORTED'
+            elif any(x in lower for x in ('403','429','blocked','forbidden','rate-limit')): code='PLATFORM_BLOCKED'
+            elif any(x in lower for x in ('timed out','timeout')): code='TIMEOUT'
+            else: code='EXTRACTION_FAILED'
+        emit(dict(error=code))
+        sys.exit(1)
