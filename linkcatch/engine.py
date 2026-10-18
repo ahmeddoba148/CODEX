@@ -99,6 +99,30 @@ def normalize(info):
     return dict(title=(info.get('title') or 'فيديو')[:300], uploader=(info.get('uploader') or info.get('channel') or '')[:150],
         duration=info.get('duration'),thumbnail=thumb,platform=info.get('extractor_key') or info.get('extractor') or '',options=result), selectors
 
+def youtube_profile(name):
+    if name == 'android_api':
+        return {'extractor_args': {'youtube': {'player_client': ['android_vr'], 'player_skip': ['webpage', 'configs'], 'innertube_host': ['youtubei.googleapis.com']}}}
+    return {'impersonate': ImpersonateTarget.from_str('chrome')}
+
+def analyze_video(url, base):
+    host=(urlsplit(url).hostname or '').lower()
+    profiles=['browser', 'android_api'] if host.endswith(('youtube.com','youtu.be')) else ['default']
+    last=None
+    for profile in profiles:
+        opt=dict(base)
+        if profile!='default':opt.update(youtube_profile(profile))
+        try:
+            with yt_dlp.YoutubeDL(opt) as ydl:
+                info=ydl.extract_info(url,download=False)
+            public, selectors=normalize(info)
+            if profile!='default':
+                for selector in selectors.values():selector['_profile']=profile
+            return public, selectors
+        except Exception as exc:
+            last=exc
+            if profile=='default':raise
+    raise last
+
 def main():
     data = json.load(sys.stdin)
     opt = options()
@@ -106,9 +130,7 @@ def main():
     if host.endswith(('facebook.com','fb.watch','fb.com')):
         opt['impersonate']=ImpersonateTarget.from_str('chrome-99')
     if data['action']=='analyze':
-        with yt_dlp.YoutubeDL(opt) as ydl:
-            info = ydl.extract_info(data['url'], download=False)
-        public, selectors = normalize(info)
+        public, selectors = analyze_video(data['url'], opt)
         emit(dict(result=public, selectors=selectors))
     else:
         output=Path(data['directory']).resolve()
@@ -120,7 +142,10 @@ def main():
                 pct=round(100*event.get('downloaded_bytes',0)/size,1) if size else None
                 emit(dict(progress=pct,status='downloading'))
             elif event.get('status')=='finished': emit(dict(progress=None,status='processing'))
-        opt.update(data['selector'])
+        selector=dict(data['selector'])
+        profile=selector.pop('_profile',None)
+        if profile:opt.update(youtube_profile(profile))
+        opt.update(selector)
         opt.update(skip_download=False, outtmpl=str(output/'video.%(ext)s'), progress_hooks=[progress],
             continuedl=False, restrictfilenames=True, concurrent_fragment_downloads=1,
             match_filter=lambda info,**kw: 'TOO_LONG' if (info.get('duration') or 0)>1200 or info.get('is_live') else None)
