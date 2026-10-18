@@ -100,13 +100,15 @@ def normalize(info):
         duration=info.get('duration'),thumbnail=thumb,platform=info.get('extractor_key') or info.get('extractor') or '',options=result), selectors
 
 def youtube_profile(name):
+    if name=='pot':
+        return {'extractor_args':{'youtube':{'player_client':['mweb']},'youtubepot-bgutilscript':{'server_home':[os.getenv('BGUTIL_HOME','/opt/bgutil/server')]}}}
     if name == 'android_api':
         return {'extractor_args': {'youtube': {'player_client': ['android_vr'], 'player_skip': ['webpage', 'configs'], 'innertube_host': ['youtubei.googleapis.com']}}}
     return {'impersonate': ImpersonateTarget.from_str('chrome')}
 
 def analyze_video(url, base):
     host=(urlsplit(url).hostname or '').lower()
-    profiles=['browser', 'android_api'] if host.endswith(('youtube.com','youtu.be')) else ['default']
+    profiles=['pot', 'browser'] if host.endswith(('youtube.com','youtu.be')) else ['default']
     last=None
     for profile in profiles:
         opt=dict(base)
@@ -151,7 +153,13 @@ def main():
             match_filter=lambda info,**kw: 'TOO_LONG' if (info.get('duration') or 0)>1200 or info.get('is_live') else None)
         with yt_dlp.YoutubeDL(opt) as ydl:
             if data.get('media'):
-                ydl.process_ie_result(data['media'],download=True)
+                try:
+                    ydl.process_ie_result(data['media'],download=True)
+                except Exception:
+                    if host.endswith(('youtube.com','youtu.be')):raise
+                    for partial in output.iterdir():
+                        if partial.is_file():partial.unlink()
+                    ydl.extract_info(data['url'],download=True)
             else:
                 ydl.extract_info(data['url'],download=True)
         files=[p for p in output.iterdir() if p.is_file() and p.suffix not in ('.part','.ytdl','.json')]

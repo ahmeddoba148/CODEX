@@ -11,7 +11,7 @@ DATA=Path(os.getenv('DATA_DIR','/tmp/linkcatch'))
 DATA.mkdir(parents=True,exist_ok=True)
 API_KEY=os.getenv('ENGINE_API_KEY','')
 JOBS={}
-SLOTS=asyncio.Semaphore(2)
+SLOTS=asyncio.Semaphore(1)
 TTL=1800
 DOMAINS=('youtube.com','youtu.be','youtube-nocookie.com','instagram.com','facebook.com','fb.watch','fb.com','tiktok.com','twitter.com','x.com','vimeo.com','dailymotion.com','dai.ly','reddit.com','redd.it','pinterest.com','pin.it','twitch.tv','clips.twitch.tv','snapchat.com','threads.net','threads.com','bsky.app','tumblr.com','linkedin.com')
 ERRORS={
@@ -118,7 +118,7 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':5}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':6}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):
