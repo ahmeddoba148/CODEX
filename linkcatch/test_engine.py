@@ -50,6 +50,8 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(client.get('/jobs/not-an-existing-id',headers=headers).status_code,404)
             self.assertEqual(client.get('/files/'+job['id'],headers=headers).status_code,409)
             self.assertNotIn('selectors',client.get('/jobs/'+job['id'],headers=headers).json())
+            job['media']={'formats':[{'url':'https://private-signed-cdn.test/secret'}]}
+            self.assertNotIn('media',client.get('/jobs/'+job['id'],headers=headers).json())
         app.JOBS.clear()
 
 if __name__=='__main__':unittest.main()

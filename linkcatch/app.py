@@ -97,7 +97,7 @@ async def run_engine(job,payload,timeout):
                         job['error']=ERRORS.get(data['error'],ERRORS['EXTRACTION_FAILED'])
                         job['error_code']=data['error']
                         print(json.dumps({'event':'engine_error','platform':urlsplit(payload['url']).hostname,'code':data['error'],'diagnostic':data.get('diagnostic','')},ensure_ascii=False),flush=True)
-                    elif 'result' in data: job.update(result=data['result'],selectors=data['selectors'])
+                    elif 'result' in data: job.update(result=data['result'],selectors=data['selectors'],media=data.get('media'))
                     elif 'file' in data: job['file']=data['file']
                 await process.wait()
             await asyncio.wait_for(consume(),timeout)
@@ -118,7 +118,7 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':4}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':5}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):
@@ -146,7 +146,7 @@ async def download(body:Download):
         JOBS.pop(job['id'],None)
         raise HTTPException(429,'مساحة الملفات المؤقتة مشغولة. حاول مرة أخرى لاحقًا.')
     directory=DATA/job['id'];directory.mkdir()
-    job['task']=asyncio.create_task(run_engine(job,{'action':'download','url':source['url'],'selector':selector,'directory':str(directory)},600))
+    job['task']=asyncio.create_task(run_engine(job,{'action':'download','url':source['url'],'selector':selector,'media':source.get('media'),'directory':str(directory)},600))
     return {'id':job['id'],'state':job['state']}
 
 @app.get('/files/{key}')

@@ -117,7 +117,7 @@ def analyze_video(url, base):
             public, selectors=normalize(info)
             if profile!='default':
                 for selector in selectors.values():selector['_profile']=profile
-            return public, selectors
+            return public, selectors, ydl.sanitize_info(info)
         except Exception as exc:
             last=exc
             if profile=='default':raise
@@ -130,8 +130,8 @@ def main():
     if host.endswith(('facebook.com','fb.watch','fb.com')):
         opt['impersonate']=ImpersonateTarget.from_str('chrome-99')
     if data['action']=='analyze':
-        public, selectors = analyze_video(data['url'], opt)
-        emit(dict(result=public, selectors=selectors))
+        public, selectors, media = analyze_video(data['url'], opt)
+        emit(dict(result=public, selectors=selectors, media=media))
     else:
         output=Path(data['directory']).resolve()
         def progress(event):
@@ -149,7 +149,11 @@ def main():
         opt.update(skip_download=False, outtmpl=str(output/'video.%(ext)s'), progress_hooks=[progress],
             continuedl=False, restrictfilenames=True, concurrent_fragment_downloads=1,
             match_filter=lambda info,**kw: 'TOO_LONG' if (info.get('duration') or 0)>1200 or info.get('is_live') else None)
-        with yt_dlp.YoutubeDL(opt) as ydl: ydl.extract_info(data['url'],download=True)
+        with yt_dlp.YoutubeDL(opt) as ydl:
+            if data.get('media'):
+                ydl.process_ie_result(data['media'],download=True)
+            else:
+                ydl.extract_info(data['url'],download=True)
         files=[p for p in output.iterdir() if p.is_file() and p.suffix not in ('.part','.ytdl','.json')]
         if len(files)!=1: raise ValueError('DOWNLOAD_FAILED')
         if files[0].stat().st_size>300*1024*1024: raise ValueError('TOO_LARGE')
