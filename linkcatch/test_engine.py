@@ -68,6 +68,24 @@ class EngineTests(unittest.TestCase):
         for address in [('127.0.0.1',80),('10.0.0.1',443),('169.254.169.254',80),('::1',80)]:
             with self.assertRaises(OSError):check_address(address)
 
+    def test_tiktok_api_watermark_url_falls_back_to_valid_cdn_copy(self):
+        # Actual failing post from the user's screenshot, 2026-10-18.
+        url='https://www.tiktok.com/@norhan.ehab20/video/7658543058962763026'
+        data={'id':'7658543058962763026','duration':5,
+              'wmplay':'https://api16-normal-useast5.tiktokv.us/aweme/v1/play/?video_id=example',
+              'wm_size':900,'play':'https://v19.tiktokcdn-us.com/video.mp4','size':700}
+        info=tiktok_resolver_info(url,{'code':0,'data':data})
+        self.assertEqual(info['formats'][0]['url'],data['play'])
+        self.assertEqual(info['formats'][0]['filesize'],700)
+        for bad in ('https://127.0.0.1/video','https://tiktokcdn-us.com.attacker.test/video',
+                    'https://v19.tiktokcdn-us.com:bad/video','file:///etc/passwd'):
+            with self.subTest(bad=bad):
+                data['wmplay']=bad
+                self.assertEqual(tiktok_resolver_info(url,{'code':0,'data':data})['formats'][0]['url'],data['play'])
+        data['play']='https://attacker.test/video'
+        with self.assertRaisesRegex(ValueError,'RESOLVER_FAILED: NO_ACCEPTED_MEDIA_URL'):
+            tiktok_resolver_info(url,{'code':0,'data':data})
+
     def test_separate_video_and_audio_are_merged_and_sizes_summed(self):
         info={'title':'Test','formats':[
           {'format_id':'137','height':1080,'vcodec':'avc1','acodec':'none','ext':'mp4','protocol':'https','url':'https://public.test/video','filesize':1000},

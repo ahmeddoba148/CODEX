@@ -113,16 +113,26 @@ def tiktok_resolver_info(url, response):
     data=response.get('data') or {}
     requested=re.search(r'/video/(\d+)',url)
     video_id=str(data.get('id') or '')
-    if response.get('code')!=0 or not video_id.isdigit() or requested and requested[1]!=video_id:
+    if response.get('code')!=0:
         raise ValueError('UNAVAILABLE')
-    # Prefer the original watermarked copy. Never invent a resolution.
-    key='wmplay' if data.get('wmplay') else 'play'
-    media=data.get(key) or ''
-    target=urlsplit(media)
-    if target.scheme!='https' or not target.hostname or target.username or target.password or target.port not in (None,443):
-        raise ValueError('UNAVAILABLE')
-    if not re.search(r'(^|\.)(?:tiktokcdn(?:-[a-z0-9]+)?\.com|muscdn\.com)$',target.hostname):
-        raise ValueError('UNAVAILABLE')
+    if not video_id.isdigit() or requested and requested[1]!=video_id:
+        raise ValueError('RESOLVER_FAILED: VIDEO_ID_MISMATCH')
+    # Some posts return wmplay on an API host outside our accepted media CDNs.
+    # Try every supplied copy before rejecting a valid post. Keep the destination
+    # allowlist and ID binding intact; never accept an arbitrary client URL.
+    for key in ('wmplay','play'):
+        media=data.get(key)
+        if not isinstance(media,str):continue
+        try:
+            target=urlsplit(media)
+            if (target.scheme=='https' and target.hostname and not target.username
+                and not target.password and target.port in (None,443)
+                and re.search(r'(^|\.)(?:tiktokcdn(?:-[a-z0-9]+)?\.com|muscdn\.com)$',target.hostname)):
+                break
+        except ValueError:
+            pass
+    else:
+        raise ValueError('RESOLVER_FAILED: NO_ACCEPTED_MEDIA_URL')
     info=dict(id=video_id,title=data.get('title') or 'فيديو',duration=data.get('duration'),
         uploader=(data.get('author') or {}).get('nickname') or '',extractor_key='TikTok',
         webpage_url=url,formats=[dict(format_id='resolver',url=media,ext='mp4',protocol='https',
@@ -222,7 +232,7 @@ if __name__=='__main__':
     except Exception as exc:
         message=str(exc)
         if WARNINGS: message+=' | '+ ' | '.join(WARNINGS[-4:])
-        code=next((c for c in ('TOO_LONG','TOO_LARGE','DRM','LIVE','PLAYLIST','NO_FORMATS') if c in message),None)
+        code=next((c for c in ('TOO_LONG','TOO_LARGE','DRM','LIVE','PLAYLIST','NO_FORMATS','UNAVAILABLE','RESOLVER_FAILED') if c in message),None)
         lower=message.lower()
         if not code:
             if any(x in lower for x in ('login','sign in','cookies','private','not a bot','confirm your age')): code='AUTH_REQUIRED'

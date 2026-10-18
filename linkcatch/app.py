@@ -20,6 +20,7 @@ ERRORS={
  'UNAVAILABLE':'الفيديو غير متاح أو تم حذفه من المنصة. جرّب رابطًا آخر.',
  'UNSUPPORTED':'هذا الرابط غير مدعوم حاليًا. استخدم الرابط المباشر لمنشور يحتوي على فيديو.',
  'EXTRACTION_FAILED':'تعذّر استخراج الفيديو. تأكد أن المنشور عام وأن الرابط يفتح مباشرة.',
+ 'RESOLVER_FAILED':'تعذّر تجهيز رابط تحميل صالح لهذا الفيديو. حاول مرة أخرى بعد قليل.',
  'NO_FORMATS':'لم تظهر صيغ قابلة للتحميل لهذا الفيديو.',
  'TOO_LONG':'الحد الحالي للفيديو 20 دقيقة.', 'TOO_LARGE':'الحد الحالي لحجم التحميل 300 ميجابايت.',
  'DRM':'هذا الفيديو محمي ولا يتوفر للتحميل.', 'LIVE':'البث المباشر غير مدعوم.',
@@ -124,7 +125,7 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':11}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':12}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):
