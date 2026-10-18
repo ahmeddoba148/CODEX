@@ -27,6 +27,13 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(selectors['v1']['format'],'18')
         self.assertIn('mp3',selectors)
 
+    def test_unknown_codecs_keep_direct_video(self):
+        data, selectors = normalize({'title':'Snap', 'formats':[{'format_id':'0','height':960,'ext':'mp4','protocol':'https','url':'https://public.test/video'}]})
+        self.assertEqual(data['options'][0]['label'],'960p')
+        self.assertTrue(data['options'][0]['audio'])
+        self.assertEqual(selectors['v0']['format'],'0')
+        self.assertIn('mp3',selectors)
+
     def test_drm_live_and_playlists_rejected(self):
         for info in [{'_type':'playlist'},{'is_live':True},{'has_drm':True},{'duration':1201}]:
             with self.assertRaises(ValueError):normalize(info)

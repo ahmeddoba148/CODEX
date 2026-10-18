@@ -1,5 +1,5 @@
 """Isolated yt-dlp process. Only JSON result/progress is written to stdout."""
-import sys, json, socket, ipaddress, os
+import sys, json, socket, ipaddress, os, re
 from pathlib import Path
 
 # Enforce public network destinations for Python downloader connections.
@@ -61,14 +61,14 @@ def normalize(info):
     aud = max(audio, key=lambda f:(f.get('ext')=='m4a', f.get('abr') or f.get('tbr') or 0), default=None)
     grouped = {}
     for f in formats:
-        if f.get('vcodec') in ('none', None): continue
+        if f.get('vcodec') == 'none' or f.get('ext') in ('m4a','mp3','aac','opus','ogg','wav'): continue
         h = int(f.get('height') or 0)
         key = h or 'original'
         score = (f.get('ext')=='mp4', str(f.get('vcodec')).startswith(('avc','h264')), f.get('tbr') or 0)
         if key not in grouped or score > grouped[key][0]: grouped[key] = (score, f)
     result, selectors = [], {}
     for key, (_, f) in sorted(grouped.items(), key=lambda item: item[0] if isinstance(item[0], int) else 0, reverse=True):
-        has_audio = f.get('acodec') not in ('none', None)
+        has_audio = f.get('acodec') != 'none'
         merge = not has_audio and aud is not None
         ext = ('mp4' if f.get('ext')=='mp4' and aud.get('ext')=='m4a' else 'mkv') if merge else (f.get('ext') or 'mp4')
         fid = str(f['format_id'])
@@ -86,7 +86,7 @@ def normalize(info):
     if aud:
         result.append(dict(id='audio',kind='audio',label='الصوت الأصلي',ext=aud.get('ext') or 'm4a',size=aud.get('filesize') or aud.get('filesize_approx'),approximate=not bool(aud.get('filesize'))))
         selectors['audio'] = dict(format=str(aud['format_id']))
-    if aud or any(f.get('acodec') not in ('none',None) for f in formats):
+    if aud or any(f.get('acodec') != 'none' for f in formats):
         result.append(dict(id='mp3',kind='audio',label='تحويل إلى MP3',ext='mp3',size=None,approximate=True))
         selectors['mp3'] = dict(format=str(aud['format_id']) if aud else 'bestaudio/best', postprocessors=[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'192'}])
     if not result: raise ValueError('NO_FORMATS')
@@ -136,5 +136,6 @@ if __name__=='__main__':
             elif any(x in lower for x in ('403','429','blocked','forbidden','rate-limit')): code='PLATFORM_BLOCKED'
             elif any(x in lower for x in ('timed out','timeout')): code='TIMEOUT'
             else: code='EXTRACTION_FAILED'
-        emit(dict(error=code))
+        diagnostic=re.sub(r'https?://[^\s]+', '<url>', message)[:900]
+        emit(dict(error=code, diagnostic=diagnostic))
         sys.exit(1)

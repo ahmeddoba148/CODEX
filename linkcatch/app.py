@@ -92,7 +92,10 @@ async def run_engine(job,payload,timeout):
                 async for line in process.stdout:
                     data=json.loads(line)
                     if 'progress' in data: job.update(progress=data['progress'],stage=data.get('status'))
-                    elif 'error' in data: job['error']=ERRORS.get(data['error'],ERRORS['EXTRACTION_FAILED'])
+                    elif 'error' in data:
+                        job['error']=ERRORS.get(data['error'],ERRORS['EXTRACTION_FAILED'])
+                        job['error_code']=data['error']
+                        print(json.dumps({'event':'engine_error','platform':urlsplit(payload['url']).hostname,'code':data['error'],'diagnostic':data.get('diagnostic','')},ensure_ascii=False),flush=True)
                     elif 'result' in data: job.update(result=data['result'],selectors=data['selectors'])
                     elif 'file' in data: job['file']=data['file']
                 await process.wait()
@@ -114,7 +117,7 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':1}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':2}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):
@@ -126,7 +129,7 @@ async def analyze(body:Analyze):
 @app.get('/jobs/{key}')
 async def status(key:str):
     job=get_job(key)
-    result={k:job[k] for k in ('id','kind','state','progress','stage','error','result') if k in job}
+    result={k:job[k] for k in ('id','kind','state','progress','stage','error','error_code','result') if k in job}
     if job['state']=='done' and job['kind']=='download':result['download_path']='/files/'+key
     return result
 
