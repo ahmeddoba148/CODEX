@@ -119,6 +119,8 @@ def tiktok_resolver_info(url, response):
     target=urlsplit(media)
     if target.scheme!='https' or not target.hostname or target.username or target.password or target.port not in (None,443):
         raise ValueError('UNAVAILABLE')
+    if not re.search(r'(^|\.)(?:tiktokcdn(?:-[a-z0-9]+)?\.com|muscdn\.com)$',target.hostname):
+        raise ValueError('UNAVAILABLE')
     info=dict(id=video_id,title=data.get('title') or 'فيديو',duration=data.get('duration'),
         uploader=(data.get('author') or {}).get('nickname') or '',extractor_key='TikTok',
         webpage_url=url,formats=[dict(format_id='resolver',url=media,ext='mp4',protocol='https',
