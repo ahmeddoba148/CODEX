@@ -27,16 +27,19 @@ socket.socket.connect = safe_connect
 socket.socket.connect_ex = safe_connect_ex
 
 import yt_dlp
+from urllib.parse import urlsplit
+from yt_dlp.networking.impersonate import ImpersonateTarget
+WARNINGS=[]
 class QuietLogger:
     def debug(self, msg): pass
-    def warning(self, msg): pass
+    def warning(self, msg): WARNINGS.append(str(msg))
     def error(self, msg): pass
 
 def emit(data):
     print(json.dumps(data, ensure_ascii=False), flush=True)
 
 def options():
-    return dict(quiet=True, no_warnings=True, logger=QuietLogger(), noplaylist=True,
+    return dict(quiet=True, no_warnings=False, logger=QuietLogger(), noplaylist=True,
         skip_download=True, socket_timeout=15, retries=1, fragment_retries=1,
         extractor_retries=1, cachedir=False, playlistend=1, hls_prefer_native=True,
         js_runtimes={'deno': {}}, max_filesize=300*1024*1024,
@@ -99,6 +102,9 @@ def normalize(info):
 def main():
     data = json.load(sys.stdin)
     opt = options()
+    host=(urlsplit(data['url']).hostname or '').lower()
+    if host.endswith(('facebook.com','fb.watch','fb.com')):
+        opt['impersonate']=ImpersonateTarget.from_str('chrome-99')
     if data['action']=='analyze':
         with yt_dlp.YoutubeDL(opt) as ydl:
             info = ydl.extract_info(data['url'], download=False)
@@ -128,10 +134,12 @@ if __name__=='__main__':
     try: main()
     except Exception as exc:
         message=str(exc)
+        if WARNINGS: message+=' | '+ ' | '.join(WARNINGS[-4:])
         code=next((c for c in ('TOO_LONG','TOO_LARGE','DRM','LIVE','PLAYLIST','NO_FORMATS') if c in message),None)
         lower=message.lower()
         if not code:
             if any(x in lower for x in ('login','sign in','cookies','private','not a bot','confirm your age')): code='AUTH_REQUIRED'
+            elif '404' in lower or 'not available' in lower or 'not found' in lower: code='UNAVAILABLE'
             elif 'unsupported' in lower: code='UNSUPPORTED'
             elif any(x in lower for x in ('403','429','blocked','forbidden','rate-limit')): code='PLATFORM_BLOCKED'
             elif any(x in lower for x in ('timed out','timeout')): code='TIMEOUT'
