@@ -20,3 +20,13 @@ Backend code deployed: 0edf26de621995b3a0adb1962e6a26eeb190f8f1. TikTok, Instagr
 Mobile document checks: HTTP 200, RTL Arabic, viewport-fit=cover, compact phone-app layout, old landing-page hero removed, standalone web manifest. Browser visual QA is unavailable in this environment. TypeScript, production build and five backend tests passed.
 
 The site is not represented as supporting successful YouTube downloads from the current cloud host. Further work requires an authorized session/verification path or a suitable external download service/proxy that the owner explicitly configures. No account cookies were collected, and no paid resource was created.
+
+## Follow-up after the user reported failures (15:21 UTC)
+
+Actual user requests were IP-blocked: TikTok video 7687664674376060167 and YouTube v2MOPr2SoD0. This overrides any implication that an earlier successful example proves platform-wide support. Both Render and the Site edge also received HTTP 403 from the TikTok resolver.
+
+The phone frontend now resolves public TikTok metadata through the CORS-enabled public TikWM endpoint without credentials. The private engine validates the video ID, HTTPS TikTok-owned CDN host, duration and size, then downloads the media. A production API test submitted the same resolver metadata and streamed the complete 5036909-byte MP4 attachment for the user's actual TikTok post. This verifies the server pipeline; a mobile browser could not be exercised in this environment. TikWM returned Access-Control-Allow-Origin: *.
+
+The 15:15 UTC production rerun downloaded full MP4 attachments for the Instagram, Facebook, Snapchat and X examples above (918120, 95023, 583698 and 720270 bytes respectively). These are sample links, not the user's unspecified failing posts. YouTube v2MOPr2SoD0 remains blocked; no successful YouTube download is claimed.
+
+The save control is now a normal same-origin download anchor activated by the user after preparation, rather than a synthetic click after asynchronous polling. Six backend tests, TypeScript and the production build passed. Engine revision 1505c075210ea4fece45909da16907a1f9d5ce70 is live.
