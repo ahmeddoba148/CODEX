@@ -4,9 +4,21 @@ os.environ['ENGINE_API_KEY']='test-only-'+'x'*40
 sys.path.insert(0,os.path.dirname(__file__))
 from fastapi.testclient import TestClient
 import app
-from engine import normalize, check_address
+from engine import normalize, check_address, tiktok_resolver_info
 
 class EngineTests(unittest.TestCase):
+    def test_resolver_binds_video_and_preserves_limits(self):
+        url='https://www.tiktok.com/@_/video/123'
+        response={'code':0,'data':{'id':'123','title':'Public video','wmplay':'https://cdn.example/video.mp4','wm_size':500,'duration':38}}
+        info=tiktok_resolver_info(url,response)
+        self.assertEqual(info['formats'][0]['filesize'],500)
+        self.assertEqual(normalize(info)[0]['options'][0]['label'],'الجودة الأصلية')
+        response['data']['id']='456'
+        with self.assertRaises(ValueError):tiktok_resolver_info(url,response)
+        response['data'].update(id='123',duration=1201)
+        with self.assertRaises(ValueError):tiktok_resolver_info(url,response)
+        response['data'].update(duration=38,wmplay='file:///etc/passwd')
+        with self.assertRaises(ValueError):tiktok_resolver_info(url,response)
     def test_private_and_unrelated_urls_rejected(self):
         for url in ['http://youtube.com/a','https://127.0.0.1/a','https://youtube.com.attacker.test/a','https://youtube.com@127.0.0.1/a','https://youtube.com:8443/a','file:///etc/passwd']:
             with self.subTest(url=url),self.assertRaises(Exception):app.valid_url(url)

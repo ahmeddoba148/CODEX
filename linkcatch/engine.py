@@ -27,7 +27,8 @@ socket.socket.connect = safe_connect
 socket.socket.connect_ex = safe_connect_ex
 
 import yt_dlp
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
+from urllib.request import Request, urlopen
 from yt_dlp.networking.impersonate import ImpersonateTarget
 WARNINGS=[]
 class QuietLogger:
@@ -106,6 +107,32 @@ def youtube_profile(name):
         return {'extractor_args': {'youtube': {'player_client': ['android_vr'], 'player_skip': ['webpage', 'configs'], 'innertube_host': ['youtubei.googleapis.com']}}}
     return {'impersonate': ImpersonateTarget.from_str('chrome')}
 
+def tiktok_resolver_info(url, response):
+    data=response.get('data') or {}
+    requested=re.search(r'/video/(\d+)',url)
+    video_id=str(data.get('id') or '')
+    if response.get('code')!=0 or not video_id.isdigit() or requested and requested[1]!=video_id:
+        raise ValueError('UNAVAILABLE')
+    # Prefer the original watermarked copy. Never invent a resolution.
+    key='wmplay' if data.get('wmplay') else 'play'
+    media=data.get(key) or ''
+    target=urlsplit(media)
+    if target.scheme!='https' or not target.hostname or target.username or target.password or target.port not in (None,443):
+        raise ValueError('UNAVAILABLE')
+    info=dict(id=video_id,title=data.get('title') or 'فيديو',duration=data.get('duration'),
+        uploader=(data.get('author') or {}).get('nickname') or '',extractor_key='TikTok',
+        webpage_url=url,formats=[dict(format_id='resolver',url=media,ext='mp4',protocol='https',
+            filesize=data.get('wm_size' if key=='wmplay' else 'size') or None)])
+    normalize(info)  # Retain duration and size restrictions for the fallback too.
+    return info
+
+def resolve_tiktok(url):
+    endpoint='https://www.tikwm.com/api/?'+urlencode({'url':url})
+    with urlopen(Request(endpoint,headers={'User-Agent':'LinkCatch/1.0','Accept':'application/json'}),timeout=25) as response:
+        raw=response.read(1024*1024+1)
+    if len(raw)>1024*1024:raise ValueError('UNAVAILABLE')
+    return tiktok_resolver_info(url,json.loads(raw))
+
 def analyze_video(url, base):
     host=(urlsplit(url).hostname or '').lower()
     profiles=['pot', 'browser'] if host.endswith(('youtube.com','youtu.be')) else ['default']
@@ -122,7 +149,16 @@ def analyze_video(url, base):
             return public, selectors, ydl.sanitize_info(info)
         except Exception as exc:
             last=exc
-            if profile=='default':raise
+            if profile=='default':
+                if host.endswith('tiktok.com') and any(s in str(exc).lower() for s in ('blocked','403','429','10204')):
+                    try:
+                        info=resolve_tiktok(url)
+                        public,selectors=normalize(info)
+                        for selector in selectors.values():selector['_provider']='tikwm'
+                        return public,selectors,info
+                    except Exception:
+                        pass
+                raise
     raise last
 
 def main():
@@ -145,6 +181,7 @@ def main():
                 emit(dict(progress=pct,status='downloading'))
             elif event.get('status')=='finished': emit(dict(progress=None,status='processing'))
         selector=dict(data['selector'])
+        provider=selector.pop('_provider',None)
         profile=selector.pop('_profile',None)
         if profile:opt.update(youtube_profile(profile))
         opt.update(selector)
@@ -159,7 +196,8 @@ def main():
                     if host.endswith(('youtube.com','youtu.be')):raise
                     for partial in output.iterdir():
                         if partial.is_file():partial.unlink()
-                    ydl.extract_info(data['url'],download=True)
+                    if provider=='tikwm':ydl.process_ie_result(resolve_tiktok(data['url']),download=True)
+                    else:ydl.extract_info(data['url'],download=True)
             else:
                 ydl.extract_info(data['url'],download=True)
         files=[p for p in output.iterdir() if p.is_file() and p.suffix not in ('.part','.ytdl','.json')]

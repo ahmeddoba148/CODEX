@@ -17,3 +17,5 @@ The yt-dlp nightly, token plugin, token-provider image and Deno are pinned. Upda
 ## Local
 
 Install FFmpeg and Deno, run `pip install -r requirements.txt`, set `ENGINE_API_KEY`, then `uvicorn app:app --host 127.0.0.1 --port 10000`.
+
+TikTok IP-block failures retry once using the public TikWM resolver. This shares only the public post URL with TikWM, prefers the watermarked video and retains all size/duration limits. Availability depends on that external API; private/login-only posts do not use this fallback.

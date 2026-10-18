@@ -16,7 +16,7 @@ TTL=1800
 DOMAINS=('youtube.com','youtu.be','youtube-nocookie.com','instagram.com','facebook.com','fb.watch','fb.com','tiktok.com','twitter.com','x.com','vimeo.com','dailymotion.com','dai.ly','reddit.com','redd.it','pinterest.com','pin.it','twitch.tv','clips.twitch.tv','snapchat.com','threads.net','threads.com','bsky.app','tumblr.com','linkedin.com')
 ERRORS={
  'AUTH_REQUIRED':'الفيديو يحتاج تسجيل دخول أو تحقق من المنصة. جرّب رابط فيديو عام آخر.',
- 'PLATFORM_BLOCKED':'المنصة منعت طلب السيرفر مؤقتًا. جرّب لاحقًا أو جرّب منصة أخرى.',
+ 'PLATFORM_BLOCKED':'المنصة رفضت الاتصال من سيرفر التحميل. هذا الرابط لا يمكن تحميله حاليًا من الموقع.',
  'UNAVAILABLE':'الفيديو غير متاح أو تم حذفه من المنصة. جرّب رابطًا آخر.',
  'UNSUPPORTED':'هذا الرابط غير مدعوم حاليًا. استخدم الرابط المباشر لمنشور يحتوي على فيديو.',
  'EXTRACTION_FAILED':'تعذّر استخراج الفيديو. تأكد أن المنشور عام وأن الرابط يفتح مباشرة.',
@@ -118,7 +118,7 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':6}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':7}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):
