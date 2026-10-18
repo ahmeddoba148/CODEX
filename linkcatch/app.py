@@ -58,7 +58,10 @@ async def authenticate(request:Request,call_next):
 class Analyze(BaseModel):
     url:str=Field(min_length=10,max_length=2048)
     resolver:dict|None=None
-class Download(BaseModel): analysis_id:str=Field(max_length=100); option_id:str=Field(max_length=50)
+class Download(BaseModel):
+    analysis_id:str=Field(max_length=100)
+    option_id:str=Field(max_length=50)
+    request_id:str|None=Field(default=None,pattern=r'^[A-Za-z0-9_-]{20,60}$')
 
 def valid_url(value):
     try:
@@ -74,10 +77,11 @@ def get_job(key):
     if not job: raise HTTPException(404,'انتهت صلاحية الطلب. حلّل الرابط مرة أخرى.')
     return job
 
-def new_job(kind):
+def new_job(kind,key=None):
+    if key and key in JOBS:raise HTTPException(409,'معرّف الطلب مستخدم بالفعل.')
     if len(JOBS)>=64 or sum(j['state'] in ('queued','running') for j in JOBS.values())>=8:
         raise HTTPException(429,'هناك طلبات كثيرة الآن. انتظر قليلًا ثم أعد المحاولة.')
-    key=secrets.token_urlsafe(24)
+    key=key or secrets.token_urlsafe(24)
     job={'id':key,'kind':kind,'created':time.monotonic(),'state':'queued','progress':None}
     JOBS[key]=job
     return job
@@ -120,7 +124,7 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':10}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':11}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):
@@ -132,7 +136,7 @@ async def analyze(body:Analyze):
 @app.get('/jobs/{key}')
 async def status(key:str):
     job=get_job(key)
-    result={k:job[k] for k in ('id','kind','state','progress','stage','error','error_code','result') if k in job}
+    result={k:job[k] for k in ('id','kind','state','progress','stage','error','error_code','result','delivery_state') if k in job}
     if job['state']=='done' and job['kind']=='download':result['download_path']='/files/'+key
     return result
 
@@ -142,7 +146,13 @@ async def download(body:Download):
     if source['kind']!='analysis' or source['state']!='done':raise HTTPException(400,'حلّل الرابط أولًا.')
     selector=source['selectors'].get(body.option_id)
     if not selector:raise HTTPException(400,'خيار التحميل غير صالح.')
-    job=new_job('download');job['title']=source['result']['title']
+    existing=JOBS.get(body.request_id) if body.request_id else None
+    if existing:
+        if existing['kind']!='download' or existing.get('analysis_id')!=body.analysis_id or existing.get('option_id')!=body.option_id:
+            raise HTTPException(409,'معرّف الطلب لا يطابق هذا الملف.')
+        return {'id':existing['id'],'state':existing['state']}
+    job=new_job('download',body.request_id)
+    job.update(title=source['result']['title'],analysis_id=body.analysis_id,option_id=body.option_id)
     total=sum(p.stat().st_size for p in DATA.rglob('*') if p.is_file())
     if total>800*1024*1024:
         JOBS.pop(job['id'],None)
@@ -151,6 +161,21 @@ async def download(body:Download):
     job['task']=asyncio.create_task(run_engine(job,{'action':'download','url':source['url'],'selector':selector,'media':source.get('media'),'directory':str(directory)},600))
     return {'id':job['id'],'state':job['state']}
 
+class TrackedFileResponse(FileResponse):
+    def __init__(self,*args,job,**kwargs):
+        self.job=job
+        super().__init__(*args,**kwargs)
+
+    async def __call__(self,scope,receive,send):
+        self.job['delivery_state']='sending'
+        try:
+            await super().__call__(scope,receive,send)
+        except BaseException:
+            self.job['delivery_state']='failed'
+            raise
+        else:
+            self.job['delivery_state']='sent'
+
 @app.get('/files/{key}')
 async def file(key:str):
     job=get_job(key)
@@ -158,4 +183,4 @@ async def file(key:str):
     path=DATA/key/job['file']
     if not path.is_file():raise HTTPException(404,'انتهت صلاحية الملف. أعد التحميل.')
     title=re.sub(r'[^\w\s\-\u0600-\u06ff]','',unicodedata.normalize('NFKC',job['title']))[:100].strip() or 'LinkCatch'
-    return FileResponse(path,filename=title+path.suffix,media_type='application/octet-stream')
+    return TrackedFileResponse(path,job=job,filename=title+path.suffix,media_type='application/octet-stream')

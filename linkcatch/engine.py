@@ -127,6 +127,9 @@ def tiktok_resolver_info(url, response):
         uploader=(data.get('author') or {}).get('nickname') or '',extractor_key='TikTok',
         webpage_url=url,formats=[dict(format_id='resolver',url=media,ext='mp4',protocol='https',
             filesize=data.get('wm_size' if key=='wmplay' else 'size') or None)])
+    cover=data.get('cover')
+    if isinstance(cover,str) and cover.startswith('https://') and len(cover)<=4096:
+        info['thumbnail']=cover
     normalize(info)  # Retain duration and size restrictions for the fallback too.
     return info
 
