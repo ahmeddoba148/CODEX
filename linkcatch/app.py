@@ -55,7 +55,9 @@ async def authenticate(request:Request,call_next):
     response.headers['X-Content-Type-Options']='nosniff'
     return response
 
-class Analyze(BaseModel): url:str=Field(min_length=10,max_length=2048)
+class Analyze(BaseModel):
+    url:str=Field(min_length=10,max_length=2048)
+    resolver:dict|None=None
 class Download(BaseModel): analysis_id:str=Field(max_length=100); option_id:str=Field(max_length=50)
 
 def valid_url(value):
@@ -118,13 +120,13 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':7}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':8}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):
     url=valid_url(body.url)
     job=new_job('analysis');job['url']=url
-    job['task']=asyncio.create_task(run_engine(job,{'action':'analyze','url':url},120))
+    job['task']=asyncio.create_task(run_engine(job,{'action':'analyze','url':url,'resolver':body.resolver},120))
     return {'id':job['id'],'state':job['state']}
 
 @app.get('/jobs/{key}')

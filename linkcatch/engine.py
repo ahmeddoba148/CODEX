@@ -156,8 +156,8 @@ def analyze_video(url, base):
                         public,selectors=normalize(info)
                         for selector in selectors.values():selector['_provider']='tikwm'
                         return public,selectors,info
-                    except Exception:
-                        pass
+                    except Exception as resolver_error:
+                        WARNINGS.append('Public resolver failed: '+str(resolver_error)[:200])
                 raise
     raise last
 
@@ -168,7 +168,12 @@ def main():
     if host.endswith(('facebook.com','fb.watch','fb.com')):
         opt['impersonate']=ImpersonateTarget.from_str('chrome-99')
     if data['action']=='analyze':
-        public, selectors, media = analyze_video(data['url'], opt)
+        if host.endswith('tiktok.com') and data.get('resolver'):
+            media=tiktok_resolver_info(data['url'],data['resolver'])
+            public,selectors=normalize(media)
+            for selector in selectors.values():selector['_provider']='tikwm'
+        else:
+            public, selectors, media = analyze_video(data['url'], opt)
         emit(dict(result=public, selectors=selectors, media=media))
     else:
         output=Path(data['directory']).resolve()
