@@ -1,4 +1,4 @@
-import os, sys, unittest
+import os, sys, unittest, time
 from unittest.mock import patch, AsyncMock
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -35,6 +35,46 @@ class EngineTests(unittest.TestCase):
                 self.assertEqual(mismatch.status_code,409)
                 self.assertEqual(client.post('/download',json={**body,'request_id':'../invalid'},headers=headers).status_code,422)
         app.JOBS.clear()
+
+    def test_analysis_retry_and_shared_link_do_not_duplicate_extraction(self):
+        app.JOBS.clear();app.ALIASES.clear()
+        with patch('app.run_engine',new_callable=AsyncMock) as run,TestClient(app.app) as client:
+            h={'X-Engine-Key':app.API_KEY};url='https://www.tiktok.com/@one/video/123?utm_source=share'
+            first=client.post('/analyze',json={'url':url,'request_id':'a'*32},headers=h)
+            retry=client.post('/analyze',json={'url':url,'request_id':'a'*32},headers=h)
+            friend=client.post('/analyze',json={'url':'https://www.tiktok.com/@two/video/123','request_id':'b'*32},headers=h)
+            self.assertEqual(first.json()['id'],retry.json()['id'])
+            self.assertEqual(first.json()['id'],friend.json()['id'])
+            self.assertEqual(run.call_count,1)
+            self.assertEqual(client.get('/jobs/'+'b'*32,headers=h).json()['id'],first.json()['id'])
+            bad=client.post('/analyze',json={'url':'https://www.tiktok.com/@one/video/999','request_id':'b'*32},headers=h)
+            self.assertEqual(bad.status_code,409)
+        app.JOBS.clear();app.ALIASES.clear()
+
+    def test_ready_download_is_reused_with_independent_file_and_range_headers(self):
+        app.JOBS.clear();app.ALIASES.clear()
+        with TemporaryDirectory() as directory,patch.object(app,'DATA',Path(directory)),patch('app.run_engine',new_callable=AsyncMock) as run,TestClient(app.app) as client:
+            h={'X-Engine-Key':app.API_KEY};source=app.new_job('analysis')
+            source.update(state='done',url='https://x.com/a/status/123',result={'title':'فيديو جديد'},selectors={'v0':{'format':'best'}})
+            body={'analysis_id':source['id'],'option_id':'v0','request_id':'c'*32}
+            first=client.post('/download',json=body,headers=h);self.assertEqual(first.status_code,202)
+            original=app.JOBS[first.json()['id']];original.update(state='done',file='video.mp4')
+            path=app.DATA/original['id']/'video.mp4';path.write_bytes(b'0123456789video')
+            second=client.post('/download',json={**body,'request_id':'d'*32},headers=h);self.assertEqual(second.status_code,202)
+            for _ in range(100):
+                state=client.get('/jobs/'+'d'*32,headers=h).json()
+                if state['state'] in ('done','error'):break
+                time.sleep(.01)
+            self.assertEqual(state['state'],'done')
+            self.assertEqual(run.call_count,1)
+            # Expiring the original must not remove the reused file.
+            path.unlink()
+            response=client.get('/files/'+'d'*32,headers={**h,'Range':'bytes=2-5'})
+            self.assertEqual(response.status_code,206);self.assertEqual(response.content,b'2345')
+            self.assertEqual(response.headers['content-type'],'video/mp4')
+            self.assertIn('filename="DoobaSave.mp4"',response.headers['content-disposition'])
+            self.assertIn("filename*=UTF-8''",response.headers['content-disposition'])
+        app.JOBS.clear();app.ALIASES.clear()
 
     def test_hls_audio_without_codec_is_merged(self):
         info={'title':'Twitter regression','formats':[
