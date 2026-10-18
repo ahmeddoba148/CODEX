@@ -30,3 +30,22 @@ The phone frontend now resolves public TikTok metadata through the CORS-enabled 
 The 15:15 UTC production rerun downloaded full MP4 attachments for the Instagram, Facebook, Snapchat and X examples above (918120, 95023, 583698 and 720270 bytes respectively). These are sample links, not the user's unspecified failing posts. YouTube v2MOPr2SoD0 remains blocked; no successful YouTube download is claimed.
 
 The save control is now a normal same-origin download anchor activated by the user after preparation, rather than a synthetic click after asynchronous polling. Six backend tests, TypeScript and the production build passed. Engine revision 1505c075210ea4fece45909da16907a1f9d5ce70 is live.
+
+## Batch verification requested by owner (2026-10-18, 15:54 UTC)
+
+Tested 22 distinct public post URLs (25 runs including three X regression retests). Each successful attachment was saved in full, hashed with SHA-256, probed with ffprobe, and fully decoded with ffmpeg including all audio streams.
+
+| Platform | Verified different videos | Different URLs attempted |
+|---|---:|---:|
+| YouTube | 0 | 3 |
+| TikTok | 3 | 3 |
+| Instagram | 4 | 5 |
+| Facebook | 3 | 5 |
+| Snapchat | 3 | 3 |
+| X | 3 | 3 |
+
+The first X downloads were structurally playable but silent: normalize discarded HLS audio-only formats when acodec was missing. Engine 10 retains audio based on vcodec=none and merges MP4 audio with MP4 video. All three original X posts were re-downloaded at 720p with AAC audio after deployment, fully decoded without errors: 3406779, 1406439 and 4327311 bytes. This corrects earlier success reports that checked the container without checking audio streams.
+
+The Instagram Chunk8-jurw and aye83DjauH results contain no audio stream; the API advertises their available video choices as audio=false. Other tested Instagram videos contain AAC audio. One Instagram URL and two Facebook URLs failed and remain recorded in the audit; their failures were not erased when additional links passed. All three YouTube links failed cloud anti-bot/access checks.
+
+The private Site HTTP path was tested, with TikTok public-resolution requests emulating the frontend. Actual mobile-browser UI and every format/MP3 conversion were not tested. Seven backend tests passed. Backend code commit: fc78c58304b4935a95dbbf73dd0e428de41daba4.
