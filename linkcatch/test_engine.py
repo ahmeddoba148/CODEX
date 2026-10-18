@@ -7,6 +7,16 @@ import app
 from engine import normalize, check_address, tiktok_resolver_info
 
 class EngineTests(unittest.TestCase):
+    def test_hls_audio_without_codec_is_merged(self):
+        info={'title':'Twitter regression','formats':[
+            {'format_id':'hls-audio','vcodec':'none','acodec':None,'ext':'mp4','protocol':'m3u8_native','url':'https://public.test/audio.m3u8'},
+            {'format_id':'hls-video','height':720,'vcodec':'avc1','acodec':'none','ext':'mp4','protocol':'m3u8_native','url':'https://public.test/video.m3u8'}]}
+        data,selectors=normalize(info)
+        self.assertTrue(data['options'][0]['audio'])
+        self.assertEqual(data['options'][0]['ext'],'mp4')
+        self.assertEqual(selectors['v0']['format'],'hls-video+hls-audio')
+        self.assertEqual(selectors['audio']['format'],'hls-audio')
+
     def test_resolver_binds_video_and_preserves_limits(self):
         url='https://www.tiktok.com/@_/video/123'
         response={'code':0,'data':{'id':'123','title':'Public video','wmplay':'https://v19.tiktokcdn-us.com/video.mp4','wm_size':500,'duration':38}}

@@ -61,7 +61,9 @@ def normalize(info):
         and (f.get('ext') or '') not in ('mhtml','jpg','png')]
     if not formats and info.get('url') and info.get('ext'):
         formats = [dict(info, format_id=info.get('format_id') or 'best')]
-    audio = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') not in ('none', None)]
+    # Audio-only HLS renditions can omit acodec. vcodec='none' still identifies
+    # them as audio; dropping them produces silent Twitter downloads.
+    audio = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
     aud = max(audio, key=lambda f:(f.get('ext')=='m4a', f.get('abr') or f.get('tbr') or 0), default=None)
     grouped = {}
     for f in formats:
@@ -74,7 +76,7 @@ def normalize(info):
     for key, (_, f) in sorted(grouped.items(), key=lambda item: item[0] if isinstance(item[0], int) else 0, reverse=True):
         has_audio = f.get('acodec') != 'none'
         merge = not has_audio and aud is not None
-        ext = ('mp4' if f.get('ext')=='mp4' and aud.get('ext')=='m4a' else 'mkv') if merge else (f.get('ext') or 'mp4')
+        ext = ('mp4' if f.get('ext')=='mp4' and aud.get('ext') in ('m4a','mp4') else 'mkv') if merge else (f.get('ext') or 'mp4')
         fid = str(f['format_id'])
         selector = fid+'+'+str(aud['format_id']) if merge else fid
         size = f.get('filesize') or f.get('filesize_approx')
