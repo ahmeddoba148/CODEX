@@ -109,6 +109,11 @@ def youtube_profile(name):
         return {'extractor_args': {'youtube': {'player_client': ['android_vr'], 'player_skip': ['webpage', 'configs'], 'innertube_host': ['youtubei.googleapis.com']}}}
     return {'impersonate': ImpersonateTarget.from_str('chrome')}
 
+def extraction_profile(name):
+    if name=='twitter_syndication':
+        return {'extractor_args':{'twitter':{'api':['syndication']}}}
+    return youtube_profile(name)
+
 def tiktok_resolver_info(url, response):
     data=response.get('data') or {}
     requested=re.search(r'/video/(\d+)',url)
@@ -152,11 +157,11 @@ def resolve_tiktok(url):
 
 def analyze_video(url, base):
     host=(urlsplit(url).hostname or '').lower()
-    profiles=['pot', 'browser'] if host.endswith(('youtube.com','youtu.be')) else ['default']
+    profiles=['pot', 'browser'] if host.endswith(('youtube.com','youtu.be')) else ['default','twitter_syndication'] if host in ('x.com','www.x.com','twitter.com','www.twitter.com','mobile.twitter.com') else ['default']
     last=None
     for profile in profiles:
         opt=dict(base)
-        if profile!='default':opt.update(youtube_profile(profile))
+        if profile!='default':opt.update(extraction_profile(profile))
         try:
             with yt_dlp.YoutubeDL(opt) as ydl:
                 info=ydl.extract_info(url,download=False)
@@ -175,7 +180,7 @@ def analyze_video(url, base):
                         return public,selectors,info
                     except Exception as resolver_error:
                         WARNINGS.append('Public resolver failed: '+str(resolver_error)[:200])
-                raise
+                if len(profiles)==1:raise
     raise last
 
 def main():
@@ -205,7 +210,7 @@ def main():
         selector=dict(data['selector'])
         provider=selector.pop('_provider',None)
         profile=selector.pop('_profile',None)
-        if profile:opt.update(youtube_profile(profile))
+        if profile:opt.update(extraction_profile(profile))
         opt.update(selector)
         opt.update(skip_download=False, outtmpl=str(output/'video.%(ext)s'), progress_hooks=[progress],
             continuedl=False, restrictfilenames=True, concurrent_fragment_downloads=1,

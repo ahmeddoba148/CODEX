@@ -147,7 +147,7 @@ async def run_engine(job,payload,timeout):
             if job['state']=='error' and job['kind']=='download': shutil.rmtree(DATA/job['id'],ignore_errors=True)
 
 @app.get('/health')
-async def health(): return {'ok':True,'engine':'yt-dlp','version':13}
+async def health(): return {'ok':True,'engine':'yt-dlp','version':14}
 
 @app.post('/analyze',status_code=202)
 async def analyze(body:Analyze):

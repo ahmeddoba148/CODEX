@@ -1,12 +1,12 @@
 import os, sys, unittest, time
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from tempfile import TemporaryDirectory
 from pathlib import Path
 os.environ['ENGINE_API_KEY']='test-only-'+'x'*40
 sys.path.insert(0,os.path.dirname(__file__))
 from fastapi.testclient import TestClient
 import app
-from engine import normalize, check_address, tiktok_resolver_info
+from engine import normalize, check_address, tiktok_resolver_info, analyze_video
 
 class EngineTests(unittest.TestCase):
     def test_download_request_is_idempotent_and_delivery_is_tracked(self):
@@ -75,6 +75,18 @@ class EngineTests(unittest.TestCase):
             self.assertIn('filename="DoobaSave.mp4"',response.headers['content-disposition'])
             self.assertIn("filename*=UTF-8''",response.headers['content-disposition'])
         app.JOBS.clear();app.ALIASES.clear()
+
+    def test_twitter_falls_back_when_primary_api_omits_media(self):
+        first=MagicMock();first.__enter__.return_value=first
+        first.extract_info.side_effect=ValueError('No video could be found in this tweet')
+        second=MagicMock();second.__enter__.return_value=second
+        info={'id':'123','title':'Video','formats':[{'format_id':'mp4-720','height':720,'ext':'mp4','protocol':'https','url':'https://video.twimg.com/video.mp4','vcodec':'avc1','acodec':'aac'}]}
+        second.extract_info.return_value=info;second.sanitize_info.return_value=info
+        with patch('engine.yt_dlp.YoutubeDL',side_effect=[first,second]) as constructor:
+            public,selectors,media=analyze_video('https://x.com/a/status/123',{})
+            self.assertEqual(constructor.call_args_list[1].args[0]['extractor_args'],{'twitter':{'api':['syndication']}})
+            self.assertEqual(selectors['v0']['_profile'],'twitter_syndication')
+            self.assertTrue(public['options'][0]['audio'])
 
     def test_hls_audio_without_codec_is_merged(self):
         info={'title':'Twitter regression','formats':[
